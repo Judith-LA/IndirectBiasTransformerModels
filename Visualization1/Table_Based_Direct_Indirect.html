@@ -314,13 +314,6 @@
 						});
 					});
 				});
-
-				if (Math.abs(colorScaleMinDirect) > colorScaleMaxDirect){
-					colorScaleMaxDirect = Math.abs(colorScaleMinDirect);
-				} else {
-					colorScaleMinDirect = -Math.abs(colorScaleMaxDirect);
-				}
-
 			};
 			
 
@@ -1696,6 +1689,12 @@
 			loadFilesInit();
 			loadFiles();
 			setTimeout(function(){
+				if (Math.abs(colorScaleMinDirect) > colorScaleMaxDirect){
+					colorScaleMaxDirect = Math.abs(colorScaleMinDirect);
+				} else {
+					colorScaleMinDirect = -Math.abs(colorScaleMaxDirect);
+				}
+				
 				setUpVisualization(); // Initialize visualization
 			}, delay);
 		</script>
