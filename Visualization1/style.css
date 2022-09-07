@@ -1,6 +1,4 @@
 body {
-	/*font-family: 'Lato', sans-serif;*/
-	/*font-family: 'Assistant', sans-serif;*/
 	font-family: 'Source Sans Pro', sans-serif;
 	background-color: #E8E8E8;
 }
@@ -11,7 +9,7 @@ h1 {
 
 .indirectTable {
   overflow: auto;
-  height: 230px;
+  height: 200px;
 }
 table, th, td {
 	border: 1px solid black;
