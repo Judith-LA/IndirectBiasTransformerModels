@@ -1,0 +1,1704 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="utf-8">
+		<script type = "text/javascript" src="https://d3js.org/d3.v7.min.js"></script>
+		<script type="text/javascript" src="../legend.js"></script>
+		<link href="https://fonts.googleapis.com/css2?family=Assistant:wght@200&family=Source+Sans+Pro:wght@300&display=swap" rel="stylesheet">
+		<link rel="stylesheet" href="style.css"></link>
+		<title>Indirect Bias Exploration - Visualization 1</title>
+	</head>
+
+	<body>
+		<div id="visualizationDiv">
+			<h1> Indirect Bias Exploration - Visualization 1</h1>
+
+			<div style='width:100%;'>
+				<div id='divModel' style='text-align: center; height: 50%; width:100%;'></div>
+				<div id='divSelection' style='text-align: center; height: 50%; width:50%; float: left;'></div>
+				<div id='divSorting' style='text-align: center; width:50%; float: right;'></div>
+			</div>
+			<div>
+				<div id='divIndirectTable' class='indirectTable' style='width: 95%; padding: 0 20;'>
+					<br>
+					<table id='indirectTableFull' hidden></table>
+					<table id='indirectTableSort' hidden></table>
+				</div>
+				<div style="width:45%; float: right; margin-right: 5%;"">
+					<div id='divLegendIndirectTable' style="float: right; margin-right: 5%;"></div>
+				</div>
+
+				<div id='divDirectTable' class='indirectTable' style='width: 95%; padding: 0 20;'>
+					<br>
+					<table id='directTableFull' hidden></table>
+					<table id='directTableSort' hidden></table>
+				</div>
+				<div style="width:45%; float: right; margin-right: 5%;"">
+					<div id='divLegendDirectTable' style="float: right; margin-right: 5%;"></div>
+				</div>
+
+			</div>
+
+		</div>
+
+
+		<script type="text/javascript">
+			var models = ['bert-base', 'bert-large', 'xl-base', 'xl-large']; // Available models
+			var target_attributes = ['beverage', 'country', 'occupation', 'sport']; // Available targets
+			var sensitive_attributes = ['age', 'gender', 'race', 'religion', 'sexual_orientation', 'yob']; // Available sensitive features
+
+			// Target dropdown menu options
+			var columnOptions = [{'name': 'Beverage', 'value': 'beverage'}, 
+								 {'name': 'Country', 'value': 'country'}, 
+								 {'name': 'Occupation', 'value': 'occupation'},
+								 {'name': 'Sport', 'value': 'sport'}]
+			// Non-sensitive feature dropdown menu options
+			var rowOptions = [{'name': 'Beverage', 'value': 'beverage'},
+							  {'name': 'Country', 'value': 'country'}, 
+							  {'name': 'Occupation', 'value': 'occupation'},
+							  {'name': 'Sport', 'value': 'sport'},
+							  {'name': 'Mental and Physical Traits', 'value': 'trait'}]
+			// Sensitive feature dropdown menu options
+			var sensitiveOptions = [{'name': 'Age', 'value': 'age'},
+									{'name': 'Gender', 'value': 'gender'},
+									{'name': 'Race', 'value': 'race'},
+									{'name': 'Religion', 'value': 'religion'},
+									{'name': 'Sexual Orientation', 'value': 'sexual_orientation'},
+									{'name': 'Year of Birth', 'value': 'yob'}]
+
+			
+			var colorScaleMinIndirect = -1, colorScaleMaxIndirect = 1; 
+			var colorScaleMinDirect = 0, colorScaleMaxDirect = 0;
+			var colorScaleIndirect, colorScaleDirect;
+			var colorScaleLegendIndirect, colorScaleLegendDirect;
+
+
+			var clicks = {}; // Clicks count dictionary
+
+			var selectedModel; 
+			var selectedColumn, selectedRow, sortingColumn, sortingRow;
+			var columnHeaders, rowHeaders, rowsContent, columns, rows;
+
+			var sortingCol, sortingRow, sortingOnColumn, sortingOnSimilarity;
+
+			var topN = 5; // Parameter defining number maximum attributes shown in sorted table
+
+			var delay = 200; // Delay between loading the data and initialize the interface
+			var explanationsShown = false; // Boolean defining whether the explanations are displayed
+
+
+			function array_product(a,b){ // Scalar product between 2 arrays
+				var sum = 0
+				for (var i = 0; i < a.length; i++){
+					sum += a[i]*b[i];
+				}
+				return sum / a.length;
+			};
+
+			function cosine_similarity(a,b){ // Cosine similarity between 2 arrays
+				var num = array_product(a,b);
+				var a_norm = Math.sqrt(a.map(x => x**2).reduce((x,y) => x+y, 0));
+				var b_norm = Math.sqrt(b.map(x => x**2).reduce((x,y) => x+y, 0));
+				return num / (a_norm*b_norm);
+			};
+
+			function getKeyByValue(object, value){
+				return Object.keys(object).find(key => object[key] === value);
+			};
+
+			function loadFilesInit(){ /* Creation of dictionaries which will contain the correlation scores, 
+										 and similarity scores for all the models and both direct and indirect method */
+				target_attributes.forEach(function(t1){
+					target_attributes.forEach(function(t2){
+						if (t1 != t2){
+							this[t1 + '_' + t2 + '_corr'] = {};
+							this[t1 + '_' + t2 + '_sim'] = {};
+							var d_corr = eval(t1 + '_' + t2 + '_corr');
+							var d_sim = eval(t1 + '_' + t2 + '_sim');
+							models.forEach(function(m){;
+								d_corr[m] = null;
+								d_sim[m] = {'direct': {}, 'indirect': {}};
+							});
+						}
+					});
+
+					this[t1 + '_trait' + '_corr'] = {};
+					this[t1 + '_trait' + '_sim'] = {};
+					var d_corr = eval(t1 + '_trait' + '_corr');
+					var d_sim = eval(t1 + '_trait' + '_sim');
+					models.forEach(function(m){;
+						d_corr[m] = null;
+						d_sim[m] = {'direct': {}, 'indirect': {}};
+					});
+
+					sensitive_attributes.forEach(function(s){
+						this[t1 + '_' + s + '_corr'] = {};
+						this[t1 + '_' + s + '_sim'] = {};
+						var d_corr = eval(t1 + '_' + s + '_corr');
+						var d_sim = eval(t1 + '_' + s + '_sim');
+						models.forEach(function(m){
+							d_corr[m] = null;
+							d_sim[m] = {'direct': {}, 'indirect': {}};
+						});
+					});
+				});
+			};
+
+			function loadFiles(){ // Load the dictionaries
+				var currentMin, currentMax;
+				models.forEach(function(m){
+					target_attributes.forEach(function(t1){
+						target_attributes.forEach(function(t2){
+							if (t1 != t2){
+								var d_corr = eval(t1 + '_' + t2 + '_corr');
+								var d_sim = eval(t1 + '_' + t2 + '_sim');
+								d3.csv("../data/" + m + "/" + t1 + "_" + t2 + "_correlation.csv").then(function(data){
+									// Load correlation scores between all the targets and non-sensivitive attributes (except traits)
+									d_corr[m] = data;
+
+									// Look for min-max values of the direct correlation score
+									colorScaleMinDirect = Math.min(colorScaleMinDirect, 
+																   Math.min(...data.map(x => parseFloat(x.direct_correlation))));
+									colorScaleMaxDirect = Math.max(colorScaleMaxDirect,
+																   Math.max(...data.map(x => parseFloat(x.direct_correlation))));
+
+									var d_corr_target = d3.group(data, d => d[t1]);
+									var target_elements = Array.from(d_corr_target.keys());
+									// Compute the cosine similarity between the target attributes
+									target_elements.forEach(function(tElm1){
+										var tElm1_sim_direct = {};
+										var tElm1_sim_indirect = {};
+										target_elements.forEach(function(tElm2){
+											if (tElm1 != tElm2){
+												var tElm1_corr_direct = d_corr_target.get(tElm1).map(x => parseFloat(x.direct_correlation));
+												var tElm2_corr_direct  = d_corr_target.get(tElm2).map(x => parseFloat(x.direct_correlation));
+												tElm1_sim_direct[tElm2] = cosine_similarity(tElm1_corr_direct,tElm2_corr_direct);
+												var tElm1_corr_indirect = d_corr_target.get(tElm1).map(x => parseFloat(x.indirect_correlation));
+												var tElm2_corr_indirect  = d_corr_target.get(tElm2).map(x => parseFloat(x.indirect_correlation));
+												tElm1_sim_indirect[tElm2] = cosine_similarity(tElm1_corr_indirect,tElm2_corr_indirect);
+											}
+										});
+										d_sim[m]['direct'][tElm1] = tElm1_sim_direct;
+										d_sim[m]['indirect'][tElm1] = tElm1_sim_indirect;
+									});
+
+									var d_corr_feature = d3.group(data, d => d[t2]);
+									var feature_elements = Array.from(d_corr_feature.keys());
+									// Compute the cosine similarity between the feature attributes
+									feature_elements.forEach(function(fElm1){
+										var fElm1_sim_direct = {};
+										var fElm1_sim_indirect = {};
+										feature_elements.forEach(function(fElm2){
+											if (fElm1 != fElm2){
+												var fElm1_corr_direct = d_corr_feature.get(fElm1).map(x => parseFloat(x.direct_correlation));
+												var fElm2_corr_direct = d_corr_feature.get(fElm2).map(x => parseFloat(x.direct_correlation));
+												fElm1_sim_direct[fElm2] = cosine_similarity(fElm1_corr_direct,fElm2_corr_direct);
+												var fElm1_corr_indirect = d_corr_feature.get(fElm1).map(x => parseFloat(x.indirect_correlation));
+												var fElm2_corr_indirect = d_corr_feature.get(fElm2).map(x => parseFloat(x.indirect_correlation));
+												fElm1_sim_indirect[fElm2] = cosine_similarity(fElm1_corr_indirect,fElm2_corr_indirect);
+											}
+										});
+										d_sim[m]['direct'][fElm1] = fElm1_sim_direct;
+										d_sim[m]['indirect'][fElm1] = fElm1_sim_indirect;
+									});
+								});
+							}
+						});
+
+						var d_corr = eval(t1 + '_trait' + '_corr');
+						var d_sim = eval(t1 + '_trait' + '_sim');
+						d3.csv("../data/" + m + "/" + t1 + "_trait" + "_correlation.csv").then(function(data){
+							// Load correlation scores between all the targets and the traits
+							d_corr[m] = data;
+
+							// Look for min-max values of the direct correlation score
+							colorScaleMinDirect = Math.min(colorScaleMinDirect,
+														   Math.min(...data.map(x => parseFloat(x.direct_correlation))));
+							colorScaleMaxDirect = Math.max(colorScaleMaxDirect,
+														   Math.max(...data.map(x => parseFloat(x.direct_correlation))));
+
+							var d_corr_target = d3.group(data, d => d[t1]);
+							var target_elements = Array.from(d_corr_target.keys());
+							// Compute the cosine similarity between the target attributes
+							target_elements.forEach(function(tElm1){
+								var tElm1_sim_direct = {};
+								var tElm1_sim_indirect = {};
+								target_elements.forEach(function(tElm2){
+									if (tElm1 != tElm2){
+										var tElm1_corr_direct = d_corr_target.get(tElm1).map(x => parseFloat(x.direct_correlation));
+										var tElm2_corr_direct = d_corr_target.get(tElm2).map(x => parseFloat(x.direct_correlation));
+										tElm1_sim_direct[tElm2] = cosine_similarity(tElm1_corr_direct,tElm2_corr_direct);
+										var tElm1_corr_indirect = d_corr_target.get(tElm1).map(x => parseFloat(x.indirect_correlation));
+										var tElm2_corr_indirect = d_corr_target.get(tElm2).map(x => parseFloat(x.indirect_correlation));
+										tElm1_sim_indirect[tElm2] = cosine_similarity(tElm1_corr_indirect,tElm2_corr_indirect);
+									}
+								});
+								d_sim[m]['direct'][tElm1] = tElm1_sim_direct;
+								d_sim[m]['indirect'][tElm1] = tElm1_sim_indirect;
+							});
+
+							var d_corr_feature = d3.group(data, d => d['trait']);
+							var feature_elements = Array.from(d_corr_feature.keys());
+							// Compute the cosine similarity between the feature attributes
+							feature_elements.forEach(function(fElm1){
+								var fElm1_sim_direct = {};
+								var fElm1_sim_indirect = {};
+								feature_elements.forEach(function(fElm2){
+									if (fElm1 != fElm2){
+										var fElm1_corr_direct = d_corr_feature.get(fElm1).map(x => parseFloat(x.direct_correlation));
+										var fElm2_corr_direct = d_corr_feature.get(fElm2).map(x => parseFloat(x.direct_correlation));
+										fElm1_sim_direct[fElm2] = cosine_similarity(fElm1_corr_direct,fElm2_corr_direct);
+										var fElm1_corr_indirect = d_corr_feature.get(fElm1).map(x => parseFloat(x.indirect_correlation));
+										var fElm2_corr_indirect = d_corr_feature.get(fElm2).map(x => parseFloat(x.indirect_correlation));
+										fElm1_sim_indirect[fElm2] = cosine_similarity(fElm1_corr_indirect,fElm2_corr_indirect);
+									}
+								});
+								d_sim[m]['direct'][fElm1] = fElm1_sim_direct;
+								d_sim[m]['indirect'][fElm1] = fElm1_sim_indirect;
+							});
+						});
+
+						sensitive_attributes.forEach(function(s){
+							// Load correlation scores between all the targets and sensivitive attributes
+							var d_corr = eval(t1 + '_' + s + '_corr');
+							var d_sim = eval(t1 + '_' + s + '_sim');
+							d3.csv("../data/" + m + "/" + t1 + "_" + s + "_correlation.csv").then(function(data){
+								d_corr[m] = data;
+
+								// Look for min-max values of the direct correlation score
+								colorScaleMinDirect = Math.min(colorScaleMinDirect,
+															   Math.min(...data.map(x => parseFloat(x.direct_correlation))));
+								colorScaleMaxDirect = Math.max(colorScaleMaxDirect,
+															   Math.min(...data.map(x => parseFloat(x.direct_correlation))));
+
+								var d_corr_target = d3.group(data, d => d[t1]);
+								var target_elements = Array.from(d_corr_target.keys());
+								// Compute the cosine similarity between the target attributes
+								target_elements.forEach(function(tElm1){
+									var tElm1_sim_direct = {};
+									var tElm1_sim_indirect = {};
+									target_elements.forEach(function(tElm2){
+										if (tElm1 != tElm2){
+											var tElm1_corr_direct = d_corr_target.get(tElm1).map(x => parseFloat(x.direct_correlation));
+											var tElm2_corr_direct = d_corr_target.get(tElm2).map(x => parseFloat(x.direct_correlation));
+											tElm1_sim_direct[tElm2] = cosine_similarity(tElm1_corr_direct,tElm2_corr_direct);
+											var tElm1_corr_indirect = d_corr_target.get(tElm1).map(x => parseFloat(x.indirect_correlation));
+											var tElm2_corr_indirect = d_corr_target.get(tElm2).map(x => parseFloat(x.indirect_correlation));
+											tElm1_sim_indirect[tElm2] = cosine_similarity(tElm1_corr_indirect,tElm2_corr_indirect);
+										}
+									});
+									d_sim[m]['direct'][tElm1] = tElm1_sim_direct;
+									d_sim[m]['indirect'][tElm1] = tElm1_sim_indirect;
+								});
+
+								var d_corr_feature = d3.group(data, d => d[s]);
+								var feature_elements = Array.from(d_corr_feature.keys());
+								// Compute the cosine similarity between the feature attributes
+								feature_elements.forEach(function(fElm1){
+									var fElm1_sim_direct = {};
+									var fElm1_sim_indirect = {};
+									feature_elements.forEach(function(fElm2){
+										if (fElm1 != fElm2){
+											var fElm1_corr_direct = d_corr_feature.get(fElm1).map(x => parseFloat(x.direct_correlation));
+											var fElm2_corr_direct = d_corr_feature.get(fElm2).map(x => parseFloat(x.direct_correlation));
+											fElm1_sim_direct[fElm2] = cosine_similarity(fElm1_corr_direct,fElm2_corr_direct);
+											var fElm1_corr_indirect = d_corr_feature.get(fElm1).map(x => parseFloat(x.indirect_correlation));
+											var fElm2_corr_indirect = d_corr_feature.get(fElm2).map(x => parseFloat(x.indirect_correlation));
+											fElm1_sim_indirect[fElm2] = cosine_similarity(fElm1_corr_indirect,fElm2_corr_direct);
+										}
+									});
+									d_sim[m]['direct'][fElm1] = fElm1_sim_direct;
+									d_sim[m]['indirect'][fElm1] = fElm1_sim_indirect;
+								});
+							});
+						});
+					});
+				});
+
+				if (Math.abs(colorScaleMinDirect) > colorScaleMaxDirect){
+					colorScaleMaxDirect = Math.abs(colorScaleMinDirect);
+				} else {
+					colorScaleMinDirect = -Math.abs(colorScaleMaxDirect);
+				}
+
+			};
+			
+
+			function setUpVisualization(){ // Initialisation of the Control Panel
+				d3.select('#divModel').text('Choose the model to use');
+				d3.select('#divModel').append('br');
+
+				// Model dropdown menu
+				var modelSelect = d3.select('#divModel')
+									.append('select')
+									.attr('id', 'modelSelect')
+									.attr('name', 'modelSelect');
+				modelSelect.append('option')
+						   .text('-')
+						   .attr('value', ' ')
+						   .attr('id', 'nullModel');
+				modelSelect.selectAll('modelOptions')
+						   .data(models)
+						   .enter()
+						   .append('option')
+						   .text(function (d) { return d; })
+						   .attr('value', function (d) { return d; })
+						   .attr('id', function (d) { return d; });
+				modelSelect.on('change', selectModel);
+
+				d3.select('#divSelection').text('Choose the attributes to compare');
+				d3.select('#divSelection').append('br');
+
+				// Target dropdown menu
+				var columnSelect = d3.select('#divSelection')
+									 .append('select')
+									 .attr('id', 'AttrOnCol')
+									 .attr('name', 'AttrOnCol');
+				columnSelect.append('option')
+							.text('-')
+							.attr('value', ' ')
+							.attr('id', 'nullColumn');
+				columnSelect.selectAll('colOptions')
+							.data(columnOptions)
+							.enter()
+							.append('option')
+							.text(function (d) { return d.name; })
+							.attr('value', function (d) { return d.value; })
+							.attr('id', function (d) { return d.value+'Column'; });
+				columnSelect.on('change', selectTableColumn);
+				columnSelect.on('mouseover', function(){ 
+												d3.select('#columnSelectLabel').attr('hidden', null); 
+												d3.select('#nullLabel').attr('hidden', true); 
+											})
+				columnSelect.on('mouseout', function(){ 
+												d3.select('#columnSelectLabel').attr('hidden', true); 
+												d3.select('#nullLabel').attr('hidden', null); 
+											})
+
+				// Non-sensitive feature dropdown menu
+				var rowSelect = d3.select('#divSelection')
+								  .append('select')
+								  .attr('id', 'AttrOnRow')
+								  .attr('name', 'AttrOnRow');
+				rowSelect.append('option')
+						 .text('-')
+						 .attr('value', ' ')
+						 .attr('id', 'nullRow');
+				rowSelect.selectAll('rowOptions')
+						 .data(rowOptions)
+						 .enter()
+						 .append('option')
+						 .text(function (d) { return d.name; })
+						 .attr('value', function (d) { return d.value; })
+						 .attr('id', function (d) { return d.value+'Row'; });
+				rowSelect.on('change', selectTableRow);
+				rowSelect.on('mouseover', function(){ 
+												d3.select('#rowSelectLabel').attr('hidden', null); 
+												d3.select('#nullLabel').attr('hidden', true); 
+											})
+				rowSelect.on('mouseout', function(){ 
+												d3.select('#rowSelectLabel').attr('hidden', true); 
+												d3.select('#nullLabel').attr('hidden', null); 
+											})
+
+				// Sensitive feature dropdown menu
+				var sensitiveAttrSelect = d3.select('#divSelection')
+											.append('select')
+											.attr('id', 'SensitiveAttrOnRow')
+											.attr('name', 'SensitiveAttrOnRow');
+				sensitiveAttrSelect.append('option')
+								   .text('-')
+								   .attr('value', ' ')
+								   .attr('id', 'nullSensitiveAttr');
+				sensitiveAttrSelect.selectAll('sensitiveRowOptions')
+								   .data(sensitiveOptions)
+								   .enter()
+								   .append('option')
+								   .text(function (d) { return d.name; })
+								   .attr('value', function (d) { return d.value; })
+								   .attr('id', function (d) { return d.value+'SensitiveRow'; });
+				sensitiveAttrSelect.on('change', selectTableSensitiveRow);
+				sensitiveAttrSelect.on('mouseover', function(){ 
+												d3.select('#sensitiveAttrSelectLabel').attr('hidden', null); 
+												d3.select('#nullLabel').attr('hidden', true); 
+											})
+				sensitiveAttrSelect.on('mouseout', function(){ 
+												d3.select('#sensitiveAttrSelectLabel').attr('hidden', true); 
+												d3.select('#nullLabel').attr('hidden', null); 
+											})
+
+				d3.select('#divSelection').append('br');
+
+				// Attributes dropdown menus legend
+				d3.select('#divSelection')
+				  .append('Label')
+				  .attr('id', 'nullLabel')
+				  .style('color', '#E8E8E8')
+				  .text('---')
+				  .style('font-size', '80%');
+				d3.select('#divSelection')
+				  .append('Label')
+				  .attr('id', 'columnSelectLabel')
+				  .attr('for', 'AttrOnCol')
+				  .attr('hidden', true)
+				  .text('Target attribute on column')
+				  .style('font-size', '80%');
+				d3.select('#divSelection')
+				  .append('Label')
+				  .attr('id', 'rowSelectLabel')
+				  .attr('for', 'AttrOnRow')
+				  .attr('hidden', true)
+				  .text('Feature attribute on row')
+				  .style('font-size', '80%');
+				d3.select('#divSelection')
+	   			  .append('Label')
+	   			  .attr('id', 'sensitiveAttrSelectLabel')
+	   			  .attr('for', 'SensitiveAttrOnRow')
+	   			  .attr('hidden', true)
+	   			  .text('Sensitive attribute on row')
+				  .style('font-size', '80%');
+
+				d3.select('#divSelection').attr('hidden', true);
+
+				initializeColorScales();
+			};
+
+			function initializeColorScales(){ // Color scales initialization
+				colorScaleIndirect = d3.scaleSequential()
+									   .domain([colorScaleMinIndirect,colorScaleMaxIndirect])
+									   .interpolator(d3.interpolatePuOr);
+				colorScaleLegendIndirect = {0: 'no correlation'};
+				colorScaleLegendIndirect[colorScaleMinIndirect] = 'strongly negative'; 
+				colorScaleLegendIndirect[colorScaleMaxIndirect] = 'strongly positive';
+
+				var legendIndirect = Legend(colorScaleIndirect, {title: 'Indirect correlation', 
+																 tickValues: [colorScaleMinIndirect,0, colorScaleMaxIndirect],
+																 tickFormat: function(d) {return colorScaleLegendIndirect[d]}, tickSize: 2 });
+				d3.select('#divLegendIndirectTable').node().appendChild(legendIndirect);
+				d3.select('#divLegendIndirectTable').attr('hidden', true);
+				
+
+				//direct_interpolator = ;
+				colorScaleDirect = d3.scaleSequential()
+									 .domain([colorScaleMinDirect, colorScaleMaxDirect])
+									 .interpolator(t => d3.interpolateRdBu(1 - t));
+				colorScaleLegendDirect = {0: 'no correlation'};
+				colorScaleLegendDirect[colorScaleMinDirect] = 'strongly negative'; 
+				colorScaleLegendDirect[colorScaleMaxDirect] = 'strongly positive';
+
+				var legendDirect = Legend(colorScaleDirect, {title: 'Direct correlation', 
+															 tickValues: [colorScaleMinDirect, 0, colorScaleMaxDirect],
+															 tickFormat: function(d) {return colorScaleLegendDirect[d]}, tickSize: 2 });
+				d3.select('#divLegendDirectTable').node().appendChild(legendDirect);
+				d3.select('#divLegendDirectTable').attr('hidden', true);
+			};
+
+			function selectModel(){ // Model selection
+				var modelSelect = d3.select('#modelSelect').node();
+				selectedModel = modelSelect.options[modelSelect.selectedIndex].value;
+
+				d3.select('#nullModel').attr('disabled', true); // Disable null model option
+				d3.select('#divSelection').attr('hidden', null); // Show attributes selection dropdown menus
+
+				d3.select('#divLegend').attr('hidden', true); // Hide sorting legend
+
+				if (selectedRow && selectedColumn){ // If target and feature already selected -> switching models -> creation of the table
+					// If target and feature already selected, persistent table sorting when switching models
+					if (sortingCol){ // Target attribute for sorting -> get previous rows order
+						var previous_row_order_indirect = d3.select('#indirectTableFull').select('tbody').selectAll('tr').nodes().map(
+															x => x.id.split('indirectRowID_')[1].replaceAll('-',"'").replaceAll('_',' '));
+						var previous_row_order_direct = d3.select('#directTableFull').select('tbody').selectAll('tr').nodes().map(
+															x => x.id.split('directRowID_')[1].replaceAll('-',"'").replaceAll('_',' '));
+					} else if (sortingRow){ // Feature attribute for sorting -> get previous columns order
+						var previous_col_order_indirect = d3.select('#indirectTableFull').select('thead').selectAll('th').nodes().map(
+															x => x.id.split('indirectColID_')[1].replaceAll('-',"'").replaceAll('_',' '));
+						var previous_col_order_direct = d3.select('#directTableFull').select('thead').selectAll('th').nodes().map(
+															x => x.id.split('directColID_')[1].replaceAll('-',"'").replaceAll('_',' '));
+					}
+
+					createBiasTablesFull(selectedColumn, selectedRow); // Create full tables
+
+					var indirect_columns = d3.select('#indirectTableFull').select('thead').selectAll('th').nodes().map(
+												x => x.id.split('indirectColID_')[1].replaceAll('-',"'").replaceAll('_',' '));
+					var indirect_rows = d3.select('#indirectTableFull').select('tbody').selectAll('tr').nodes().map(
+											x => x.id.split('indirectRowID_')[1].replaceAll('-',"'").replaceAll('_',' '));
+
+					var direct_columns = d3.select('#directTableFull').select('thead').selectAll('th').nodes().map(
+												x => x.id.split('directColID_')[1].replaceAll('-',"'").replaceAll('_',' '));
+					var direct_rows = d3.select('#directTableFull').select('tbody').selectAll('tr').nodes().map(
+											x => x.id.split('directRowID_')[1].replaceAll('-',"'").replaceAll('_',' '));
+
+					// Persistent sorting
+					if (sortingCol && indirect_columns.includes(sortingCol)){ // Target attribute for sorting and same target category -> columnSorting
+						clicks[sortingCol] --;
+						columnSorting(sortingCol);
+					} else if (sortingCol){ // Target attribute for sorting and new target category -> createBiasTablesSort
+						createBiasTablesSort(selectedColumn, selectedRow, [indirect_columns, direct_columns], 
+											 [previous_row_order_indirect, previous_row_order_direct], sortingCol);
+						if (sortingOnSimilarity){
+							var sortingText = '<b>' + selectedRow + '</b> sorted based on: <b>' + sortingCol+ '</b>';
+							d3.select('#divSorting').html(sortingText);
+						}
+					} else if (sortingRow && indirect_rows.includes(sortingRow)) { // Feature attribute for sorting and same feature category -> rowSorting
+						clicks[sortingRow] --;
+						rowSorting(sortingRow);
+					} else if (sortingRow){ // Feature attribute for sorting and same feature category -> createIndirectBiasTableSort
+						createBiasTablesSort(selectedColumn, selectedRow, [previous_col_order_indirect, previous_col_order_direct], 
+											 [indirect_rows, direct_rows], sortingRow);
+						if (sortingOnSimilarity){
+							var sortingText = '<b>' + selectedColumn + '</b> sorted based on: <b>' + sortingRow + '</b>';
+							d3.select('#divSorting').html(sortingText);
+						}
+					} else { // No specific sorting
+						d3.select('#divSorting').text('');
+					}
+				}
+			};
+
+			function selectTableColumn(){ // Target selection
+				d3.select('#divIndirectScatterPlot').selectAll('*').remove(); // Remove previous indirect scatterplot, if any
+
+				var columnSelect = d3.select('#AttrOnCol').node();
+				var rowSelect = d3.select('#AttrOnRow');
+				var sensitiveAttrSelect = d3.select('#SensitiveAttrOnRow');
+				selectedColumn = columnSelect.options[columnSelect.selectedIndex].value;
+				
+				d3.select('#nullColumn').attr('disabled', true); // Disable null target category
+				rowSelect.selectAll('option').attr('disabled', null); // Enable all non-sensitive feature categories
+				d3.select('#nullRow').attr('disabled', true); // Disable null non-sensitive feature category
+				d3.select('#' + selectedColumn + 'Row').attr('disabled', true); // Disable selected target category in non-sensitive dropdown menu
+				d3.select('#nullSensitiveAttr').attr('disabled', true); // Disable null sensitive feature category
+
+				d3.select('#divLegend').attr('hidden', true); // Hide sorting legend
+
+				if (selectedRow){ // If feature already selected -> create table
+					if (sortingCol){ // If target attribute for sorting -> persitent sorting on rows -> get previous rows order
+						var previous_row_order_indirect = d3.select('#indirectTableFull').select('tbody').selectAll('tr').nodes().map(
+															x => x.id.split('indirectRowID_')[1].replaceAll('-',"'").replaceAll('_',' '));
+						var previous_row_order_direct = d3.select('#directTableFull').select('tbody').selectAll('tr').nodes().map(
+															x => x.id.split('directRowID_')[1].replaceAll('-',"'").replaceAll('_',' '));
+					}
+
+					createBiasTablesFull(selectedColumn, selectedRow); // Create full tables
+
+					var indirect_columns = d3.select('#indirectTableFull').select('thead').selectAll('th').nodes().map(
+												x => x.id.split('indirectColID_')[1].replaceAll('-',"'").replaceAll('_',' '));
+					var indirect_rows = d3.select('#indirectTableFull').select('tbody').selectAll('tr').nodes().map(
+											x => x.id.split('indirectRowID_')[1].replaceAll('-',"'").replaceAll('_',' '));
+
+					var direct_columns = d3.select('#directTableFull').select('thead').selectAll('th').nodes().map(
+												x => x.id.split('directColID_')[1].replaceAll('-',"'").replaceAll('_',' '));
+					var direct_rows = d3.select('#directTableFull').select('tbody').selectAll('tr').nodes().map(
+											x => x.id.split('directRowID_')[1].replaceAll('-',"'").replaceAll('_',' '));
+
+					if (sortingRow && indirect_rows.includes(sortingRow)) { // Feature attribute for sorting and same feature category -> rowSorting
+						clicks[sortingRow] --;
+						rowSorting(sortingRow);
+					} else if (sortingCol && indirect_columns.includes(sortingCol)){ // Target attribute for sorting and same target category -> columnSorting
+						clicks[sortingCol] --;
+						columnSorting(sortingCol);
+					} else if (sortingCol){ // Target attribute for sorting and new target category -> createBiasTablesSort
+						createBiasTablesSort(selectedColumn, selectedRow, [indirect_columns, direct_columns], 
+											 [previous_row_order_indirect, previous_row_order_direct], sortingCol);
+
+						// Display correct sorting legend
+						if (sortingOnSimilarity){
+							var sortingText = '<b>' + selectedRow + '</b> sorted based on: <b>' + sortingCol+ '</b>';
+							d3.select('#divSorting').html(sortingText);
+						}
+					}
+				};
+			};
+
+			function selectTableRow(){ // Non-sensitive feature selection
+				d3.select('#divIndirectScatterPlot').selectAll('*').remove(); // Remove previous indirect scatterplot, if any
+				
+				var columnSelect = d3.select('#AttrOnCol');
+				var rowSelect = d3.select('#AttrOnRow').node();
+				var sensitiveAttrSelect = d3.select('#SensitiveAttrOnRow');
+				selectedRow = rowSelect.options[rowSelect.selectedIndex].value;
+
+				columnSelect.selectAll('option').attr('disabled', null); // Enable all target categories
+				d3.select('#nullColumn').attr('disabled', true); // Disable null target category
+				d3.select('#nullRow').attr('disabled', true); // Disable null non-sensitive feature category
+				d3.select('#' + selectedRow + 'Column').attr('disabled', true); // Disable selected non-sensitive feature category in target dropdown menu
+				sensitiveAttrSelect.selectAll('option').attr('disabled', null); // Enable all sensitive feature categories
+				sensitiveAttrSelect.node().selectedIndex = 0; // Set selected sensitive feature to null sensitive feature
+				d3.select('#nullSensitiveAttr').attr('disabled', true); // Disable null sensitive feature category
+
+				d3.select('#divLegend').attr('hidden', true); // Hide sorting legend
+
+				if (selectedColumn) { // If target already selected -> create table
+					if (sortingRow){ // If feature attribute for sorting -> persitent sorting on columns -> get previous columns order
+						var previous_col_order_indirect = d3.select('#indirectTableFull').select('thead').selectAll('th').nodes().map(
+															x => x.id.split('indirectColID_')[1].replaceAll('-',"'").replaceAll('_',' '));
+						var previous_col_order_direct = d3.select('#directTableFull').select('thead').selectAll('th').nodes().map(
+															x => x.id.split('directColID_')[1].replaceAll('-',"'").replaceAll('_',' '));
+					}
+
+					createBiasTablesFull(selectedColumn, selectedRow); // Create full tables
+
+					var indirect_columns = d3.select('#indirectTableFull').select('thead').selectAll('th').nodes().map(
+												x => x.id.split('indirectColID_')[1].replaceAll('-',"'").replaceAll('_',' '));
+					var indirect_rows = d3.select('#indirectTableFull').select('tbody').selectAll('tr').nodes().map(
+											x => x.id.split('indirectRowID_')[1].replaceAll('-',"'").replaceAll('_',' '));
+
+					var direct_columns = d3.select('#directTableFull').select('thead').selectAll('th').nodes().map(
+												x => x.id.split('directColID_')[1].replaceAll('-',"'").replaceAll('_',' '));
+					var direct_rows = d3.select('#directTableFull').select('tbody').selectAll('tr').nodes().map(
+											x => x.id.split('directRowID_')[1].replaceAll('-',"'").replaceAll('_',' '));
+
+					if (sortingCol && indirect_columns.includes(sortingCol)){ // Target attribute for sorting and same target category -> columnSorting
+						clicks[sortingCol] --;
+						columnSorting(sortingCol);
+					} else if (sortingRow && indirect_rows.includes(sortingRow)){ // Feature attribute for sorting and same feature category -> rowSorting
+						clicks[sortingRow] --;
+						rowSorting(sortingRow);
+					} else if (sortingRow){ // Feature attribute for sorting and new feature category -> createBiasTablesSort
+						createBiasTablesSort(selectedColumn, selectedRow, [previous_col_order_indirect, previous_col_order_direct], 
+											 [indirect_rows, direct_rows], sortingRow);
+
+						// Display correct sorting legend
+						if (sortingOnSimilarity){
+							var sortingText = '<b>' + selectedColumn + '</b> sorted based on: <b>' + sortingRow + '</b>';
+							d3.select('#divSorting').html(sortingText);
+						}
+					}
+
+					
+				};
+			};
+
+			function selectTableSensitiveRow(){ // Sensitive feature selection
+				d3.select('#divIndirectScatterPlot').selectAll('*').remove(); // Remove previous indirect scatterplot, if any
+				
+				var columnSelect = d3.select('#AttrOnCol');
+				var rowSelect = d3.select('#AttrOnRow');
+				var sensitiveAttrSelect = d3.select('#SensitiveAttrOnRow').node();
+				selectedRow = sensitiveAttrSelect.options[sensitiveAttrSelect.selectedIndex].value;
+
+				columnSelect.selectAll('option').attr('disabled', null); // Enable all target categories
+				d3.select('#nullColumn').attr('disabled', true); // Disable null target category
+				rowSelect.selectAll('option').attr('disabled', null); // Enable all non-sensitive feature categories
+				rowSelect.node().selectedIndex = 0; // Set selected non-sensitive feature to null sensitive feature
+				d3.select('#nullRow').attr('disabled', true); // Disable null non-sensitive feature category
+				d3.select('#' + selectedColumn + 'Row').attr('disabled', true);
+				d3.select('#nullSensitiveAttr').attr('disabled', true); // Disable null sensitive feature category
+
+				d3.select('#divLegend').attr('hidden', true); // Hide sorting legend
+
+				if (selectedColumn){ // If target already selected -> create table
+					if (sortingRow){ // If feature attribute for sorting -> persitent sorting on columns -> get previous columns order
+						var previous_col_order_indirect = d3.select('#indirectTableFull').select('thead').selectAll('th').nodes().map(
+															x => x.id.split('indirectColID_')[1].replaceAll('-',"'").replaceAll('_',' '));
+						var previous_col_order_direct = d3.select('#directTableFull').select('thead').selectAll('th').nodes().map(
+															x => x.id.split('directColID_')[1].replaceAll('-',"'").replaceAll('_',' '));
+					}
+
+					createBiasTablesFull(selectedColumn, selectedRow); // Create full tables
+
+					var indirect_columns = d3.select('#indirectTableFull').select('thead').selectAll('th').nodes().map(
+												x => x.id.split('indirectColID_')[1].replaceAll('-',"'").replaceAll('_',' '));
+					var indirect_rows = d3.select('#indirectTableFull').select('tbody').selectAll('tr').nodes().map(
+											x => x.id.split('indirectRowID_')[1].replaceAll('-',"'").replaceAll('_',' '));
+
+					var direct_columns = d3.select('#directTableFull').select('thead').selectAll('th').nodes().map(
+												x => x.id.split('directColID_')[1].replaceAll('-',"'").replaceAll('_',' '));
+					var direct_rows = d3.select('#directTableFull').select('tbody').selectAll('tr').nodes().map(
+											x => x.id.split('directRowID_')[1].replaceAll('-',"'").replaceAll('_',' '));
+
+					if (sortingCol && indirect_columns.includes(sortingCol)){ // Target attribute for sorting and same target category -> columnSorting
+						clicks[sortingCol] --;
+						columnSorting(sortingCol);
+					} else if (sortingRow && indirect_rows.includes(sortingRow)){ // Feature attribute for sorting and same feature category -> rowSorting
+						clicks[sortingRow] --;
+						rowSorting(sortingRow);
+					} else if (sortingRow){ // Feature attribute for sorting and new feature category -> createBiasTablesSort
+						createBiasTablesSort(selectedColumn, selectedRow, [previous_col_order_indirect, previous_col_order_direct], 
+											 [indirect_rows, direct_rows], sortingRow);
+
+						// Display correct sorting legend
+						if (sortingOnSimilarity){
+							var sortingText = '<b>' + selectedColumn + '</b> sorted based on: <b>' + sortingRow + '</b>';
+							d3.select('#divSorting').html(sortingText);
+						}
+					}
+				};
+			};
+
+
+			function createBiasTablesFull(column_name, row_name){ // Create full tables
+				createIndirectBiasTableFull(column_name, row_name);
+				createDirectBiasTableFull(column_name, row_name);
+			};
+
+			function createIndirectBiasTableFull(column_name, row_name){ // Create full indirect table
+				d3.select('#indirectTableFull').selectAll('*').remove(); // Reset full table
+				d3.select('#indirectTableFull').attr('hidden', null); // Show full table
+				d3.select('#indirectTableSort').attr('hidden', true); // Hide sorted table
+
+				var data = eval(column_name + '_' + row_name + '_corr')[selectedModel]; // Get correlation scores data
+
+				var column_data = Array.from(d3.group(data, d => d[column_name]).keys()); // Get columns headers
+				column_data = column_data.sort();
+				var row_data = Array.from(d3.group(data, d => d[row_name]).keys()); // Get rows headers
+				if ((row_name != 'age') & (row_name != 'gender')){ row_data = row_data.sort(); }
+
+				// Create table with empty head and body
+				var table = d3.select('#indirectTableFull');
+				table.attr('hidden', null);
+				var thead = table.append('thead');
+				var	tbody = table.append('tbody');
+
+				// Add legend for columns and rows
+				var diagCell = thead.append('tr')
+									.append('td')
+									.attr('class', 'diag');
+				diagCell.append('div')
+						.attr('class', 'top')
+						.text(column_name);
+				diagCell.append('div')
+						.attr('class', 'bottom')
+						.text(row_name);
+
+				// Compute arrays for correlations scores for each column and each row
+				var data_per_column = [], data_per_row = [];
+				column_data.forEach(function(c){
+					if (!Object.keys(clicks).includes(c)) {clicks[c] = 0;}
+					var col = {};
+					col[column_name] = c;
+					var filteredData = data.filter(x => x[column_name] == c);
+					filteredData.forEach(function(d){
+						col[d[row_name]] = parseFloat(d.indirect_correlation).toFixed(4);
+					});
+					data_per_column.push(col);
+				});
+				row_data.forEach(function(r){
+					if (!Object.keys(clicks).includes(r)) {clicks[r] = 0;}
+					var row = {};
+					row[row_name] = r;
+					var filteredData = data.filter(x => x[row_name] == r);
+					filteredData.forEach(function(d){
+						row[d[column_name]] = parseFloat(d.indirect_correlation).toFixed(4);
+					});
+					data_per_row.push(row);
+				});
+
+				// Complete columns headers and rows headers
+				columnHeaders = thead.select('tr').selectAll('th')
+												  .data(data_per_column, function(d){ return d[column_name]; })
+												  .enter()
+												  .append('th')
+												  .attr('id', function(d) { return 'indirectColID_' + 
+												  									d[column_name].replaceAll("'",'-').replaceAll(' ', '_'); })
+												  .text(function(d) { return d[column_name]; });				  
+				rowHeaders = tbody.selectAll('tr')
+								  .data(data_per_row, function(d){ return d[row_name]; })
+								  .enter()
+								  .append('tr')
+								  .attr('id', function(d) { return 'indirectRowID_' + 
+												  					d[row_name].replaceAll("'",'-').replaceAll(' ', '_'); })
+								  .append('th')
+								  .text(function(d) { return d[row_name]; });
+
+				// Complete table cells
+				tbody.selectAll('tr').selectAll('td')
+									 .data(function(d){
+										var arr = [];
+										column_data.forEach(function(c){
+											var row = {};
+											row[row_name] = d[row_name]; // Feature
+											row[column_name] = c; // Target
+											row['indirect_correlation'] = d[c]; // Correlation score
+											row['color'] = colorScaleIndirect(d[c]); // Color based on correlation score
+											arr.push(row)
+										});
+										return arr;
+									 })
+									 .enter()
+									 .append('td')
+									 .attr('id', function(d) { return 'indirectCellID_' + d[column_name].replaceAll("'",'-').replaceAll(' ', '_'); })
+									 // Correlation score displayed in the same color as the background of the cell  
+									 .text(function(d) { return d.indirect_correlation; })
+									 .style('background-color', function(d) { return d.color; }) 
+									 .style('color', function(d) { return d.color; })
+									 // Correlation score revealed only when mouse over the cell
+									 .on('mouseover', function() { 
+									 					var d = d3.select(this).data()[0];
+									 					if ((d.direct_correlation > colorScaleMaxIndirect*0.5) || 
+									 						(d.direct_correlation < colorScaleMaxDirect*0.5)){
+									 						d3.select(this).style('color', 'white'); 
+									 					} else {
+									 						d3.select(this).style('color', 'black'); 
+									 					}
+									 				})
+									 .on('mouseout', function() { d3.select(this).style('color', d3.select(this).style('background-color')); });
+					
+				rows = tbody.selectAll('tr');
+				rowsContent = tbody.selectAll('tr').selectAll('td');
+
+				// Add click functions on columns and rows headers to enable sorting
+				columnHeaders.on('click', function(){
+											var col = d3.select(this).node().id.split('indirectColID_')[1].replaceAll('-',"'").replaceAll('_',' ');
+
+											columnSorting(col); // Sort table based on target attributes
+										});
+				rowHeaders.on('click', function(){
+										var row = d3.select(this).node().parentNode.id.split('indirectRowID_')[1].replaceAll('-',"'").replaceAll('_',' ');
+
+										rowSorting(row); // Sort table based on feature attributes
+								   });
+			
+				d3.select('#divLegendIndirectTable').attr('hidden', null); // Show sorting legend
+			};
+
+			function createDirectBiasTableFull(column_name, row_name){ // Create full direct table
+				d3.select('#directTableFull').selectAll('*').remove(); // Reset full table
+				d3.select('#directTableFull').attr('hidden', null); // Show full table
+				d3.select('#directTableSort').attr('hidden', true); // Hide sorted table
+
+				var data = eval(column_name + '_' + row_name + '_corr')[selectedModel]; // Get correlation scores data
+
+				var column_data = Array.from(d3.group(data, d => d[column_name]).keys()); // Get columns headers
+				column_data = column_data.sort();
+				var row_data = Array.from(d3.group(data, d => d[row_name]).keys()); // Get rows headers
+				if ((row_name != 'age') & (row_name != 'gender')){ row_data = row_data.sort(); }
+
+				// Create table with empty head and body
+				var table = d3.select('#directTableFull');
+				table.attr('hidden', null);
+				var thead = table.append('thead');
+				var	tbody = table.append('tbody');
+
+				// Add legend for columns and rows
+				var diagCell = thead.append('tr')
+									.append('td')
+									.attr('class', 'diag');
+				diagCell.append('div')
+						.attr('class', 'top')
+						.text(column_name);
+				diagCell.append('div')
+						.attr('class', 'bottom')
+						.text(row_name);
+
+				// Compute arrays for correlations scores for each column and each row
+				var data_per_column = [], data_per_row = [];
+				column_data.forEach(function(c){
+					if (!Object.keys(clicks).includes(c)) {clicks[c] = 0;}
+					var col = {};
+					col[column_name] = c;
+					var filteredData = data.filter(x => x[column_name] == c);
+					filteredData.forEach(function(d){
+						col[d[row_name]] = parseFloat(d.direct_correlation).toFixed(4);
+					});
+					data_per_column.push(col);
+				});
+				row_data.forEach(function(r){
+					if (!Object.keys(clicks).includes(r)) {clicks[r] = 0;}
+					var row = {};
+					row[row_name] = r;
+					var filteredData = data.filter(x => x[row_name] == r);
+					filteredData.forEach(function(d){
+						row[d[column_name]] = parseFloat(d.direct_correlation).toFixed(4);
+					});
+					data_per_row.push(row);
+				});
+
+				// Complete columns headers and rows headers
+				columnHeaders = thead.select('tr').selectAll('th')
+												  .data(data_per_column, function(d){ return d[column_name]; })
+												  .enter()
+												  .append('th')
+												  .attr('id', function(d) { return 'directColID_' + 
+												  									d[column_name].replaceAll("'",'-').replaceAll(' ', '_'); })
+												  .text(function(d) { return d[column_name]; });				  
+				rowHeaders = tbody.selectAll('tr')
+								  .data(data_per_row, function(d){ return d[row_name]; })
+								  .enter()
+								  .append('tr')
+								  .attr('id', function(d) { return 'directRowID_' + 
+												  					d[row_name].replaceAll("'",'-').replaceAll(' ', '_'); })
+								  .append('th')
+								  .text(function(d) { return d[row_name]; });
+
+				// Complete table cells
+				tbody.selectAll('tr').selectAll('td')
+									 .data(function(d){
+										var arr = [];
+										column_data.forEach(function(c){
+											var row = {};
+											row[row_name] = d[row_name]; // Feature
+											row[column_name] = c; // Target
+											row['direct_correlation'] = d[c]; // Correlation score
+											row['color'] = colorScaleDirect(d[c]); // Color based on correlation score
+											arr.push(row)
+										});
+										return arr;
+									 })
+									 .enter()
+									 .append('td')
+									 .attr('id', function(d) { return 'directCellID_' + d[column_name].replaceAll("'",'-').replaceAll(' ', '_'); })
+									 // Correlation score displayed in the same color as the background of the cell  
+									 .text(function(d) { return d.direct_correlation; })
+									 .style('background-color', function(d) { return d.color; }) 
+									 .style('color', function(d) { return d.color; })
+									 // Correlation score revealed only when mouse over the cell
+									 .on('mouseover', function() { 
+									 					var d = d3.select(this).data()[0];
+									 					if ((d.direct_correlation > colorScaleMaxDirect*0.5) || 
+									 						(d.direct_correlation < colorScaleMinDirect*0.5)){
+									 						d3.select(this).style('color', 'white'); 
+									 					} else {
+									 						d3.select(this).style('color', 'black'); 
+									 					}
+									 				})
+									 .on('mouseout', function() { d3.select(this).style('color', d3.select(this).style('background-color')); });
+					
+				rows = tbody.selectAll('tr');
+				rowsContent = tbody.selectAll('tr').selectAll('td');
+
+				// Add click functions on columns and rows headers to enable sorting
+				columnHeaders.on('click', function(){
+											var col = d3.select(this).node().id.split('directColID_')[1].replaceAll('-',"'").replaceAll('_',' ');
+
+											columnSorting(col); // Sort table based on target attributes
+										});
+				rowHeaders.on('click', function(){
+										var row = d3.select(this).node().parentNode.id.split('directRowID_')[1].replaceAll('-',"'").replaceAll('_',' ');
+
+										rowSorting(row); // Sort table based on feature attributes
+								   });
+			
+				d3.select('#divLegendDirectTable').attr('hidden', null); // Show sorting legend
+			};
+
+
+			function createBiasTablesSort(column_name, row_name, column_order, row_order, clickAttr){ // Create sorted tables
+				createIndirectBiasTableSort(column_name, row_name, column_order[0], row_order[0], clickAttr);
+				createDirectBiasTableSort(column_name, row_name, column_order[1], row_order[1], clickAttr);
+			};
+
+			function createIndirectBiasTableSort(column_name, row_name, column_order, row_order, clickAttr){ // Create sorted indirect table
+				d3.select('#indirectTableFull').attr('hidden', true); // Hide full table
+				d3.select('#indirectTableSort').selectAll('*').remove(); // Show sorted table
+
+				var data = eval(column_name + '_' + row_name + '_corr')[selectedModel]; // Get correlation scores data
+				var data_sim_indirect = eval(column_name + '_' + row_name + '_sim')[selectedModel]['indirect']; // Get similarity between attributes data
+
+				// Get right order for columns and rows data
+				var column_data, row_data;
+				if (sortingOnColumn){ // Sorting based on selected target
+					if (sortingOnSimilarity && column_order.includes(clickAttr)){ // Sorting on rows and columns
+						// Get columns order based on similarity with selected target
+						var tableFullCols = d3.select('#indirectTableFull').select('thead').selectAll('th').nodes(
+											).map(x => x.id.split('indirectColID_')[1].replaceAll('-',"'").replaceAll('_',' '));
+						var colSimilarities_data = data_sim_indirect[clickAttr];
+						var colSimilarities = Object.values(colSimilarities_data).sort( function(a,b){return a - b} 
+													).map(x => getKeyByValue(colSimilarities_data, x)
+													).concat([clickAttr]).reverse().filter(x => tableFullCols.includes(x));
+
+						// Display maximum attributes (2*topN+1) for columns
+						if (colSimilarities.length >= 2*topN + 1){
+							column_data = colSimilarities.slice(0, topN + 1).concat(['...']
+											).concat(colSimilarities.slice(colSimilarities.length - topN));
+						} else {
+							column_data = colSimilarities;
+						}
+						// Display all rows sorted based on correlation score with selected target
+						row_data = row_order;
+					} else { // Sorting on rows
+						// Display all columns
+						column_data = column_order;
+						// Display maximum attributes (2*topN+1) for rows
+						if (row_order.length >= 2*topN && column_order.includes(clickAttr)){
+							row_data = row_order.slice(0, topN).concat(['...']).concat(row_order.slice(row_order.length - topN));
+						} else {
+							row_data = row_order;
+						}
+					}	
+				} else { // Sorting based on selected feature
+					if (sortingOnSimilarity && row_order.includes(clickAttr)){ // Sorting on columns and rows
+						// Display all columns sorted based on correlation score with selected feature
+						column_data = column_order;
+
+						// Get rows order based on similarity with selected feature
+						var tableFullRows = d3.select('#indirectTableFull').select('tbody').selectAll('tr').nodes(
+											).map(x => x.id.split('indirectRowID_')[1].replaceAll('-',"'").replaceAll('_',' '));
+						var rowSimilarities_data = data_sim_indirect[clickAttr];
+						var rowSimilarities = Object.values(rowSimilarities_data).sort( function(a,b){return a - b} 
+													).map(x => getKeyByValue(rowSimilarities_data, x)
+													).concat([clickAttr]).reverse().filter(x => tableFullRows.includes(x));
+
+						// Display maximum attributes (2*topN+1) for rows
+						if (rowSimilarities.length >= 2*topN + 1){
+							row_data = rowSimilarities.slice(0, topN + 1).concat(['...']
+											).concat(rowSimilarities.slice(rowSimilarities.length - topN));
+						} else {
+							row_data = rowSimilarities;
+						}
+					} else { // Sorting on columns
+						// Display maximum attributes (2*topN+1) for columns
+						if (column_order.length >= 2*topN && row_order.includes(clickAttr)){
+							column_data = column_order.slice(0, topN).concat(['...']).concat(column_order.slice(column_order.length - topN));
+						} else {
+							column_data = column_order;
+						}
+						// Display all rows
+						row_data = row_order
+					}
+				}
+
+				// Create sorted table similarly to full table (see createIndirectBiasTableFull) based on columns and rows data properly sorted
+				var table = d3.select('#indirectTableSort');
+				table.attr('hidden', null);
+				var thead = table.append('thead');
+				var tbody = table.append('tbody'); 
+
+				var diagCell = thead.append('tr')
+									.append('td')
+									.attr('class', 'diag');
+				diagCell.append('div')
+						.attr('class', 'top')
+						.text(column_name);
+				diagCell.append('div')
+						.attr('class', 'bottom')
+						.text(row_name);
+
+				var data_per_column = [], data_per_row = [];
+				column_data.forEach(function(c){
+					var col = {};
+					col[column_name] = c;
+					if (c != '...'){
+						var filteredData = data.filter(x => x[column_name] == c);
+						filteredData.forEach(function(d){
+							col[d[row_name]] = parseFloat(d.indirect_correlation).toFixed(4);
+						});
+						if ('...' in row_data) {
+							col['...'] = '...'
+						};
+					} else {
+						row_data.forEach(function(r){
+							col[r] = '...';
+						})
+					}
+					data_per_column.push(col);
+				});
+				row_data.forEach(function(r){
+					var row = {};
+					row[row_name] = r;
+					row['...'] = '...';
+					if (r != '...'){
+						var filteredData = data.filter(x => x[row_name] == r);
+						filteredData.forEach(function(d){
+							row[d[column_name]] = parseFloat(d.indirect_correlation).toFixed(4);
+						});
+					} else {
+						column_data.forEach(function(c){
+							row[c] = '...';
+						})
+					}
+					data_per_row.push(row);
+				});
+
+				columnHeaders = thead.select('tr').selectAll('th')
+												  .data(data_per_column, function(d){ return d[column_name]; })
+												  .enter()
+												  .append('th')
+												  .attr('id', function(d) { return 'indirectColID_' + 
+												  									d[column_name].replaceAll("'",'-').replaceAll(' ', '_'); })
+												  .text(function(d) { return d[column_name]; });				  
+				rowHeaders = tbody.selectAll('tr')
+								  .data(data_per_row, function(d){ return d[row_name]; })
+								  .enter()
+								  .append('tr')
+								  .attr('id', function(d) { return 'indirectRowID_' + 
+								  									d[row_name].replaceAll("'",'-').replaceAll(' ', '_'); })
+								  .append('th')
+								  .text(function(d) { return d[row_name]; });
+
+				tbody.selectAll('tr').selectAll('td')
+									 .data(function(d){
+										var arr = [];
+										column_data.forEach(function(c){
+											var row = {};
+											row[row_name] = d[row_name];
+											row[column_name] = c;
+											row['indirect_correlation'] = d[c];
+											arr.push(row)
+										});
+										return arr;
+									 })
+									 .enter()
+									 .append('td')
+									 .attr('id', function(d) { return 'indirectCellID_' + d[column_name].replaceAll("'",'-').replaceAll(' ', '_'); })
+									 .text(function(d) { return d.indirect_correlation; })
+									 .style('background-color', function(d) { 
+									 								if(d.indirect_correlation == '...'){ return '#ababab'; } 
+									 								else { return colorScaleIndirect(d.indirect_correlation);} })
+									 .style('color', function(d) { 
+									 					if(d.indirect_correlation == '...'){ return '#ababab'; } 
+									 					else { return colorScaleIndirect(d.indirect_correlation);} })
+									 .on('mouseover', function() { 
+										 					var d = d3.select(this).data()[0];
+										 					if ((d.direct_correlation > colorScaleMaxDirect*0.5) || 
+										 						(d.direct_correlation < colorScaleMinDirect*0.5)){
+										 						d3.select(this).style('color', 'white'); 
+										 					} else {
+										 						d3.select(this).style('color', 'black'); 
+										 					}
+										 				})
+									 .on('mouseout', function() { d3.select(this).style('color', d3.select(this).style('background-color')); });
+	
+				columnHeaders.on('click', function(){
+											var col = d3.select(this).node().id.split('indirectColID_')[1].replaceAll('-',"'").replaceAll('_',' ');
+
+											columnSorting(col);
+										});
+				rowHeaders.on('click', function(){
+										var row = d3.select(this).node().parentNode.id.split('indirectRowID_')[1].replaceAll('-',"'").replaceAll('_',' ');
+
+										rowSorting(row);
+								   });
+			};
+
+			function createDirectBiasTableSort(column_name, row_name, column_order, row_order, clickAttr){ // Create sorted direct table
+				d3.select('#directTableFull').attr('hidden', true); // Hide full table
+				d3.select('#directTableSort').selectAll('*').remove(); // Show sorted table
+
+				var data = eval(column_name + '_' + row_name + '_corr')[selectedModel]; // Get correlation scores data
+				var data_sim_direct = eval(column_name + '_' + row_name + '_sim')[selectedModel]['direct']; // Get similarity between attributes data
+
+				// Get right order for columns and rows data
+				var column_data, row_data;
+				if (sortingOnColumn){ // Sorting based on selected target
+					if (sortingOnSimilarity && column_order.includes(clickAttr)){ // Sorting on rows and columns
+						// Get columns order based on similarity with selected target
+						var tableFullCols = d3.select('#directTableFull').select('thead').selectAll('th').nodes(
+											).map(x => x.id.split('directColID_')[1].replaceAll('-',"'").replaceAll('_',' '));
+						var colSimilarities_data = data_sim_direct[clickAttr];
+						var colSimilarities = Object.values(colSimilarities_data).sort( function(a,b){return a - b} 
+													).map(x => getKeyByValue(colSimilarities_data, x)
+													).concat([clickAttr]).reverse().filter(x => tableFullCols.includes(x));
+
+						// Display maximum attributes (2*topN+1) for columns
+						if (colSimilarities.length >= 2*topN + 1){
+							column_data = colSimilarities.slice(0, topN + 1).concat(['...']
+											).concat(colSimilarities.slice(colSimilarities.length - topN));
+						} else {
+							column_data = colSimilarities;
+						}
+						// Display all rows sorted based on correlation score with selected target
+						row_data = row_order;
+					} else { // Sorting on rows
+						// Display all columns
+						column_data = column_order;
+						// Display maximum attributes (2*topN+1) for rows
+						if (row_order.length >= 2*topN && column_order.includes(clickAttr)){
+							row_data = row_order.slice(0, topN).concat(['...']).concat(row_order.slice(row_order.length - topN));
+						} else {
+							row_data = row_order;
+						}
+					}	
+				} else { // Sorting based on selected feature
+					if (sortingOnSimilarity && row_order.includes(clickAttr)){ // Sorting on columns and rows
+						// Display all columns sorted based on correlation score with selected feature
+						column_data = column_order;
+
+						// Get rows order based on similarity with selected feature
+						var tableFullRows = d3.select('#directTableFull').select('tbody').selectAll('tr').nodes(
+											).map(x => x.id.split('directRowID_')[1].replaceAll('-',"'").replaceAll('_',' '));
+						var rowSimilarities_data = data_sim_direct[clickAttr];
+						var rowSimilarities = Object.values(rowSimilarities_data).sort( function(a,b){return a - b} 
+													).map(x => getKeyByValue(rowSimilarities_data, x)
+													).concat([clickAttr]).reverse().filter(x => tableFullRows.includes(x));
+
+						// Display maximum attributes (2*topN+1) for rows
+						if (rowSimilarities.length >= 2*topN + 1){
+							row_data = rowSimilarities.slice(0, topN + 1).concat(['...']
+											).concat(rowSimilarities.slice(rowSimilarities.length - topN));
+						} else {
+							row_data = rowSimilarities;
+						}
+					} else { // Sorting on columns
+						// Display maximum attributes (2*topN+1) for columns
+						if (column_order.length >= 2*topN && row_order.includes(clickAttr)){
+							column_data = column_order.slice(0, topN).concat(['...']).concat(column_order.slice(column_order.length - topN));
+						} else {
+							column_data = column_order;
+						}
+						// Display all rows
+						row_data = row_order
+					}
+				}
+
+				// Create sorted table similarly to full table (see createDirectBiasTableFull) based on columns and rows data properly sorted
+				var table = d3.select('#directTableSort');
+				table.attr('hidden', null);
+				var thead = table.append('thead');
+				var tbody = table.append('tbody'); 
+
+				var diagCell = thead.append('tr')
+									.append('td')
+									.attr('class', 'diag');
+				diagCell.append('div')
+						.attr('class', 'top')
+						.text(column_name);
+				diagCell.append('div')
+						.attr('class', 'bottom')
+						.text(row_name);
+
+				var data_per_column = [], data_per_row = [];
+				column_data.forEach(function(c){
+					var col = {};
+					col[column_name] = c;
+					if (c != '...'){
+						var filteredData = data.filter(x => x[column_name] == c);
+						filteredData.forEach(function(d){
+							col[d[row_name]] = parseFloat(d.direct_correlation).toFixed(4);
+						});
+						if ('...' in row_data) {
+							col['...'] = '...'
+						};
+					} else {
+						row_data.forEach(function(r){
+							col[r] = '...';
+						})
+					}
+					data_per_column.push(col);
+				});
+				row_data.forEach(function(r){
+					var row = {};
+					row[row_name] = r;
+					row['...'] = '...';
+					if (r != '...'){
+						var filteredData = data.filter(x => x[row_name] == r);
+						filteredData.forEach(function(d){
+							row[d[column_name]] = parseFloat(d.direct_correlation).toFixed(4);
+						});
+					} else {
+						column_data.forEach(function(c){
+							row[c] = '...';
+						})
+					}
+					data_per_row.push(row);
+				});
+
+				columnHeaders = thead.select('tr').selectAll('th')
+												  .data(data_per_column, function(d){ return d[column_name]; })
+												  .enter()
+												  .append('th')
+												  .attr('id', function(d) { return 'directColID_' + 
+												  									d[column_name].replaceAll("'",'-').replaceAll(' ', '_'); })
+												  .text(function(d) { return d[column_name]; });				  
+				rowHeaders = tbody.selectAll('tr')
+								  .data(data_per_row, function(d){ return d[row_name]; })
+								  .enter()
+								  .append('tr')
+								  .attr('id', function(d) { return 'directRowID_' + 
+								  									d[row_name].replaceAll("'",'-').replaceAll(' ', '_'); })
+								  .append('th')
+								  .text(function(d) { return d[row_name]; });
+
+				tbody.selectAll('tr').selectAll('td')
+									 .data(function(d){
+										var arr = [];
+										column_data.forEach(function(c){
+											var row = {};
+											row[row_name] = d[row_name];
+											row[column_name] = c;
+											row['direct_correlation'] = d[c];
+											arr.push(row)
+										});
+										return arr;
+									 })
+									 .enter()
+									 .append('td')
+									 .attr('id', function(d) { return 'directCellID_' + d[column_name].replaceAll("'",'-').replaceAll(' ', '_'); })
+									 .text(function(d) { return d.direct_correlation; })
+									 .style('background-color', function(d) { 
+									 								if(d.direct_correlation == '...'){ return '#ababab'; } 
+									 								else { return colorScaleDirect(d.direct_correlation);} })
+									 .style('color', function(d) { 
+									 					if(d.direct_correlation == '...'){ return '#ababab'; } 
+									 					else { return colorScaleDirect(d.direct_correlation);} })
+									 .on('mouseover', function() { 
+										 					var d = d3.select(this).data()[0];
+										 					if ((d.direct_correlation > colorScaleMaxDirect*0.5) || 
+										 						(d.direct_correlation < colorScaleMinDirect*0.5)){
+										 						d3.select(this).style('color', 'white'); 
+										 					} else {
+										 						d3.select(this).style('color', 'black'); 
+										 					}
+										 				})
+									 .on('mouseout', function() { d3.select(this).style('color', d3.select(this).style('background-color')); });
+	
+				columnHeaders.on('click', function(){
+											var col = d3.select(this).node().id.split('directColID_')[1].replaceAll('-',"'").replaceAll('_',' ');
+											columnSorting(col);
+										});
+				rowHeaders.on('click', function(){
+										var row = d3.select(this).node().parentNode.id.split('directRowID_')[1].replaceAll('-',"'").replaceAll('_',' ');
+										rowSorting(row);
+								   });
+			};
+
+			
+			function columnSorting(col){ // Table sorting based on target
+				sortingOnColumn = true;
+				sortingOnSimilarity = null; 
+
+				// Reset color of attributes in headers - indirect table
+				d3.select('#indirectTableFull').select('thead').selectAll('th').style('background-color','white');
+				d3.select('#indirectTableSort').select('thead').selectAll('th').style('background-color','white');
+				d3.select('#indirectTableFull').select('thead').selectAll('th').style('color','black');
+				d3.select('#indirectTableSort').select('thead').selectAll('th').style('color','black');
+
+				d3.select('#indirectTableFull').select('tbody').selectAll('th').style('background-color','white');
+				d3.select('#indirectTableSort').select('tbody').selectAll('th').style('background-color','white');
+				d3.select('#indirectTableFull').select('tbody').selectAll('th').style('color','black');
+				d3.select('#indirectTableSort').select('tbody').selectAll('th').style('color','black');
+
+				// Reset color of attributes in headers - direct table
+				d3.select('#directTableFull').select('thead').selectAll('th').style('background-color','white');
+				d3.select('#directTableSort').select('thead').selectAll('th').style('background-color','white');
+				d3.select('#directTableFull').select('thead').selectAll('th').style('color','black');
+				d3.select('#directTableSort').select('thead').selectAll('th').style('color','black');
+
+				d3.select('#directTableFull').select('tbody').selectAll('th').style('background-color','white');
+				d3.select('#directTableSort').select('tbody').selectAll('th').style('background-color','white');
+				d3.select('#directTableFull').select('tbody').selectAll('th').style('color','black');
+				d3.select('#directTableSort').select('tbody').selectAll('th').style('color','black');
+
+				
+				var sortingText =  ''; // Reset sorting legend text
+
+				if (col != sortingCol){ clicks[col] = 0; } // Reset clicks count if new selected target
+
+				// Sort full table columns - indirect table
+				var columnHeadersIndirectFull = d3.select('#indirectTableFull').select('thead').selectAll('th');
+				columnHeadersIndirectFull.sort(function(a,b){ 
+					if (clicks[col] % 3 == 2) { // Sort full table columns based on alphabetical order
+						if (a[selectedColumn] < b[selectedColumn]){
+							return -1;
+						} else if (a[selectedColumn] > b[selectedColumn]){
+							return 1;
+						} else {
+							return 0;
+						}
+					}
+				});
+
+				// Sort full table columns - direct table
+				var columnHeadersDirectFull = d3.select('#directTableFull').select('thead').selectAll('th');
+				columnHeadersDirectFull.sort(function(a,b){ 
+					if (clicks[col] % 3 == 2) { // Sort full table columns based on alphabetical order
+						if (a[selectedColumn] < b[selectedColumn]){
+							return -1;
+						} else if (a[selectedColumn] > b[selectedColumn]){
+							return 1;
+						} else {
+							return 0;
+						}
+					}
+				});
+
+				// Sort full table rows based on selected target - indirect table
+				var rowsIndirectFull = d3.select('#indirectTableFull').select('tbody').selectAll('tr');
+				rowsIndirectFull.sort(function(a,b){
+					if (clicks[col] % 3 != 2) { // Sort full table rows based on selected target 
+						if (parseFloat(a[col]) < parseFloat(b[col])){
+							return 1;
+						} else if (parseFloat(a[col])  > parseFloat(b[col])){
+							return -1;
+						} else {
+							return 0;
+						}
+					} else { // Sort full table rows based on alphabetical order
+						if (a[selectedRow] < b[selectedRow]){
+							return -1;
+						} else if (a[selectedRow] > b[selectedRow]){
+							return 1;
+						} else {
+							return 0;
+						}
+					}
+				});
+
+				// Sort full table rows based on selected target - direct table
+				var rowsDirectFull = d3.select('#directTableFull').select('tbody').selectAll('tr');
+				rowsDirectFull.sort(function(a,b){
+					if (clicks[col] % 3 != 2) { // Sort full table rows based on selected target 
+						if (parseFloat(a[col]) < parseFloat(b[col])){
+							return 1;
+						} else if (parseFloat(a[col])  > parseFloat(b[col])){
+							return -1;
+						} else {
+							return 0;
+						}
+					} else { // Sort full table rows based on alphabetical order
+						if (a[selectedRow] < b[selectedRow]){
+							return -1;
+						} else if (a[selectedRow] > b[selectedRow]){
+							return 1;
+						} else {
+							return 0;
+						}
+					}
+				});
+
+				
+				if (clicks[col] % 3 == 2){ // Sorting based on alphabetical order
+					sortingCol = null;
+
+					d3.select('#indirectTableSort').attr('hidden', true); // Hide indirect sorted table
+					d3.select('#indirectTableFull').attr('hidden', null); // Show indirect full table
+
+					d3.select('#directTableSort').attr('hidden', true); // Hide direct sorted table
+					d3.select('#directTableFull').attr('hidden', null); // Show direct full table
+				} else { // Sorting based on selected target
+					sortingCol = col;
+
+					var col_order_indirect = d3.select('#indirectTableFull').select('thead').selectAll('th').nodes().map(
+												x => x.id.split('indirectColID_')[1].replaceAll('-',"'").replaceAll('_',' '));
+					var row_order_indirect = d3.select('#indirectTableFull').select('tbody').selectAll('tr').nodes().map(
+												x => x.id.split('indirectRowID_')[1].replaceAll('-',"'").replaceAll('_',' '));
+
+					var col_order_direct = d3.select('#directTableFull').select('thead').selectAll('th').nodes().map(
+												x => x.id.split('directColID_')[1].replaceAll('-',"'").replaceAll('_',' '));
+					var row_order_direct = d3.select('#directTableFull').select('tbody').selectAll('tr').nodes().map(
+												x => x.id.split('directRowID_')[1].replaceAll('-',"'").replaceAll('_',' '));
+
+					if (clicks[col] % 3 == 1){ sortingOnSimilarity = true; }
+
+					createBiasTablesSort(selectedColumn, selectedRow, 
+										 [col_order_indirect, col_order_direct], [row_order_indirect, row_order_direct], 
+										 col); // Create sorted tables
+
+					// Update color of selected target in tables - indirect tables
+					var indirect_col_id = '#indirectColID_' + col.replaceAll("'",'-').replaceAll(' ', '_');
+					d3.select('#indirectTableFull').select('thead').select(indirect_col_id).style('background-color', 
+																								  colorScaleIndirect(colorScaleMaxIndirect));
+					d3.select('#indirectTableSort').select('thead').select(indirect_col_id).style('background-color', 
+																								   colorScaleIndirect(colorScaleMaxIndirect));
+					d3.select('#indirectTableFull').select('thead').select(indirect_col_id).style('color', 'white');
+					d3.select('#indirectTableSort').select('thead').select(indirect_col_id).style('color', 'white');
+
+					// Update color of selected target in tables - direct tables
+					var direct_col_id = '#directColID_' + col.replaceAll("'",'-').replaceAll(' ', '_');
+					d3.select('#directTableFull').select('thead').select(direct_col_id).style('background-color', 
+																							  colorScaleDirect(colorScaleMaxDirect));
+					d3.select('#directTableSort').select('thead').select(direct_col_id).style('background-color', 
+																							  colorScaleDirect(colorScaleMaxDirect));
+					d3.select('#directTableFull').select('thead').select(direct_col_id).style('color', 'white');
+					d3.select('#directTableSort').select('thead').select(direct_col_id).style('color', 'white');
+
+
+					// Update sorting legend text
+					if (clicks[col] % 3 == 0) {
+						sortingText = '<b>' + selectedRow + '</b> sorted based on: <b>' + col + '</b>';
+					} else { 
+						sortingText = '<b>' + selectedRow + '</b> and <b>' + selectedColumn + '</b> sorted based on: <b>' + col + '</b>';
+					}
+				}
+
+				clicks[col]++; // Update clicks count
+				sortingRow = null; // Update sortingRow
+
+				d3.select('#divSorting').html(sortingText); // Update sorting legend
+			};
+
+			function rowSorting(row){ // Table sorting based on feature
+				sortingOnColumn = false;
+				sortingOnSimilarity = null;
+
+				// Reset color of attributes in headers - indirect table
+				d3.select('#indirectTableFull').select('thead').selectAll('th').style('background-color','white');
+				d3.select('#indirectTableSort').select('thead').selectAll('th').style('background-color','white');
+				d3.select('#indirectTableFull').select('thead').selectAll('th').style('color','black');
+				d3.select('#indirectTableSort').select('thead').selectAll('th').style('color','black');
+
+				d3.select('#indirectTableFull').select('tbody').selectAll('th').style('background-color','white');
+				d3.select('#indirectTableSort').select('tbody').selectAll('th').style('background-color','white');
+				d3.select('#indirectTableFull').select('tbody').selectAll('th').style('color','black');
+				d3.select('#indirectTableSort').select('tbody').selectAll('th').style('color','black');
+
+				// Reset color of attributes in headers - direct table
+				d3.select('#directTableFull').select('thead').selectAll('th').style('background-color','white');
+				d3.select('#directTableSort').select('thead').selectAll('th').style('background-color','white');
+				d3.select('#directTableFull').select('thead').selectAll('th').style('color','black');
+				d3.select('#directTableSort').select('thead').selectAll('th').style('color','black');
+
+				d3.select('#directTableFull').select('tbody').selectAll('th').style('background-color','white');
+				d3.select('#directTableSort').select('tbody').selectAll('th').style('background-color','white');
+				d3.select('#directTableFull').select('tbody').selectAll('th').style('color','black');
+				d3.select('#directTableSort').select('tbody').selectAll('th').style('color','black');
+
+
+				var sortingText =  ''; // Reset sorting legend text
+
+				if (row != sortingRow){ clicks[row] = 0; } // Reset clicks count if new selected feature
+
+				
+				// Sort full table columns based on selected feature - indirect table
+				var columnHeadersIndirectFull = d3.select('#indirectTableFull').select('thead').selectAll('th');
+				columnHeadersIndirectFull.sort(function(a,b){
+					if (clicks[row] % 3 != 2) { // Sort full table columns based on selected feature 
+						if (parseFloat(a[row]) < parseFloat(b[row]) ){
+							return 1;
+						} else if (parseFloat(a[row])  > parseFloat(b[row])){
+							return -1;
+						} else {
+							return 0;
+						}
+					} else { // Sort full table columns based on alphabetical order
+						if (a[selectedColumn] < b[selectedColumn]){
+							return -1;
+						} else if (a[selectedColumn] > b[selectedColumn]){
+							return 1;
+						} else {
+							return 0;
+						}
+					}
+				});
+
+				// Sort full table columns based on selected target - indirect table
+				var rowsContentIndirectFull = d3.select('#indirectTableFull').select('tbody').selectAll('tr').selectAll('td');
+				var colOrderIndirectFull = d3.select('#indirectTableFull').select('thead').selectAll('th').nodes().map(x => x.id.split('colID_')[1])
+				rowsContentIndirectFull.sort(function(a,b){
+					var aScore = colOrderIndirectFull.indexOf(a[selectedColumn].replaceAll("'",'-').replaceAll(' ', '_'));
+					var bScore = colOrderIndirectFull.indexOf(b[selectedColumn].replaceAll("'",'-').replaceAll(' ', '_'));
+					return aScore - bScore;
+				});
+
+				// Sort full table rows - indirect table
+				var rowsIndirectFull = d3.select('#indirectTableFull').select('tbody').selectAll('tr');
+				rowsIndirectFull.sort(function(a,b){
+					if (clicks[row] % 3 == 2) { // Sort full table rows based on alphabetical order
+						if (a[selectedRow] < b[selectedRow]){
+							return -1;
+						} else if (a[selectedRow] > b[selectedRow]){
+							return 1;
+						} else {
+							return 0;
+						}
+					}
+				});
+
+				// Sort full table columns based on selected feature - direct table
+				var columnHeadersDirectFull = d3.select('#directTableFull').select('thead').selectAll('th');
+				columnHeadersDirectFull.sort(function(a,b){
+					if (clicks[row] % 3 != 2) { // Sort full table columns based on selected feature 
+						if (parseFloat(a[row]) < parseFloat(b[row]) ){
+							return 1;
+						} else if (parseFloat(a[row])  > parseFloat(b[row])){
+							return -1;
+						} else {
+							return 0;
+						}
+					} else { // Sort full table columns based on alphabetical order
+						if (a[selectedColumn] < b[selectedColumn]){
+							return -1;
+						} else if (a[selectedColumn] > b[selectedColumn]){
+							return 1;
+						} else {
+							return 0;
+						}
+					}
+				});
+
+				// Sort full table columns based on selected target - direct table
+				var rowsContentDirectFull = d3.select('#directTableFull').select('tbody').selectAll('tr').selectAll('td');
+				var colOrderDirectFull = d3.select('#directTableFull').select('thead').selectAll('th').nodes().map(x => x.id.split('colID_')[1])
+				rowsContentDirectFull.sort(function(a,b){
+					var aScore = colOrderDirectFull.indexOf(a[selectedColumn].replaceAll("'",'-').replaceAll(' ', '_'));
+					var bScore = colOrderDirectFull.indexOf(b[selectedColumn].replaceAll("'",'-').replaceAll(' ', '_'));
+					return aScore - bScore;
+				});
+
+				// Sort full table rows - direct table
+				var rowsDirectFull = d3.select('#directTableFull').select('tbody').selectAll('tr');
+				rowsDirectFull.sort(function(a,b){
+					if (clicks[row] % 3 == 2) { // Sort full table rows based on alphabetical order
+						if (a[selectedRow] < b[selectedRow]){
+							return -1;
+						} else if (a[selectedRow] > b[selectedRow]){
+							return 1;
+						} else {
+							return 0;
+						}
+					}
+				});
+
+
+				if (clicks[row] % 3 == 2){ // Sorting based on alphabetical order
+					sortingRow = null;
+
+					d3.select('#indirectTableSort').attr('hidden', true); // Hide sorted indirect table
+					d3.select('#indirectTableFull').attr('hidden', null); // Show full indirect table
+
+					d3.select('#directTableSort').attr('hidden', true); // Hide sorted direct table
+					d3.select('#directTableFull').attr('hidden', null); // Show full direct table
+				} else { // Sorting based on selected feature
+					sortingRow = row;
+
+					var col_order_indirect = d3.select('#indirectTableFull').select('thead').selectAll('th').nodes().map(
+												x => x.id.split('indirectColID_')[1].replaceAll('-',"'").replaceAll('_',' '));
+					var row_order_indirect = d3.select('#indirectTableFull').select('tbody').selectAll('tr').nodes().map(
+												x => x.id.split('indirectRowID_')[1].replaceAll('-',"'").replaceAll('_',' '));
+
+					var col_order_direct = d3.select('#directTableFull').select('thead').selectAll('th').nodes().map(
+												x => x.id.split('directColID_')[1].replaceAll('-',"'").replaceAll('_',' '));
+					var row_order_direct = d3.select('#directTableFull').select('tbody').selectAll('tr').nodes().map(
+												x => x.id.split('directRowID_')[1].replaceAll('-',"'").replaceAll('_',' '));
+
+
+
+					if (clicks[row] % 3 == 1){ sortingOnSimilarity = true; }
+
+					createBiasTablesSort(selectedColumn, selectedRow, 
+										 [col_order_indirect, col_order_direct], [row_order_indirect, row_order_direct], 
+										 row); // Create sorted tables
+
+					// Update color of selected feature in tables 
+					var indirect_row_id = '#indirectRowID_' + row.replaceAll("'",'-').replaceAll(' ', '_');
+					d3.select('#indirectTableFull').select('tbody').select(indirect_row_id).select('th').style('background-color',
+														colorScaleIndirect(colorScaleMaxIndirect));
+					d3.select('#indirectTableSort').select('tbody').select(indirect_row_id).select('th').style('background-color',
+														colorScaleIndirect(colorScaleMaxIndirect));
+					d3.select('#indirectTableFull').select('tbody').select(indirect_row_id).select('th').style('color', 'white');
+					d3.select('#indirectTableSort').select('tbody').select(indirect_row_id).select('th').style('color', 'white');
+
+					var direct_row_id = '#directRowID_' + row.replaceAll("'",'-').replaceAll(' ', '_');
+					d3.select('#directTableFull').select('tbody').select(direct_row_id).select('th').style('background-color',
+														colorScaleIndirect(colorScaleMaxDirect));
+					d3.select('#directTableSort').select('tbody').select(direct_row_id).select('th').style('background-color',
+														colorScaleIndirect(colorScaleMaxDirect));
+					d3.select('#directTableFull').select('tbody').select(direct_row_id).select('th').style('color', 'white');
+					d3.select('#directTableSort').select('tbody').select(direct_row_id).select('th').style('color', 'white');
+
+
+					// Update sorting legend text
+					if (clicks[row] % 3 == 0) { //create sorting table - descending order
+						sortingText = '<b>' + selectedColumn + '</b> sorted based on: <b>' + row + '</b>';
+					} else { //create sorting table - ascending order
+						sortingText = '<b>' + selectedColumn + '</b> and <b>' + selectedRow + '</b> sorted based on: <b>' + row + '</b>';
+					}
+				}
+
+				clicks[row]++; // Update clicks count
+				sortingCol = null; // Update sortingCol
+
+				d3.select('#divSorting').html(sortingText); // Update sorting legend
+			};
+
+			
+
+			loadFilesInit();
+			loadFiles();
+			setTimeout(function(){
+				setUpVisualization(); // Initialize visualization
+			}, delay);
+		</script>
+
+	</body>
+</html>
