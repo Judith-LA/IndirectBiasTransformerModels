@@ -594,6 +594,25 @@
 						createBiasTablesSort(selectedColumn, selectedRow, [indirect_columns, direct_columns], 
 											 [previous_row_order_indirect, previous_row_order_direct], sortingCol);
 
+						// Update rows order for the full table
+						var indirect_rows_order = d3.select('#indirectTableSort').select('tbody').selectAll('tr').nodes().map(
+														x => x.id.split('rowID_')[1].replaceAll('-',"'").replaceAll('_',' '));
+						var indirect_rows_full = d3.select('#indirectTableFull').select('tbody').selectAll('tr');
+						indirect_rows_full.sort(function(a,b){
+							var aScore = indirect_rows_order.indexOf(a[selectedRow]);
+							var bScore = indirect_rows_order.indexOf(b[selectedRow]);
+							return aScore - bScore;
+						});
+
+						var direct_rows_order = d3.select('#directTableSort').select('tbody').selectAll('tr').nodes().map(
+														x => x.id.split('rowID_')[1].replaceAll('-',"'").replaceAll('_',' '));
+						var direct_rows_full = d3.select('#directTableFull').select('tbody').selectAll('tr');
+						direct_rows_full.sort(function(a,b){
+							var aScore = direct_rows_order.indexOf(a[selectedRow]);
+							var bScore = direct_rows_order.indexOf(b[selectedRow]);
+							return aScore - bScore;
+						});
+
 						// Display correct sorting legend
 						if (sortingOnSimilarity){
 							var sortingText = '<b>' + selectedRow + '</b> sorted based on: <b>' + sortingCol+ '</b>';
@@ -650,6 +669,37 @@
 					} else if (sortingRow){ // Feature attribute for sorting and new feature category -> createBiasTablesSort
 						createBiasTablesSort(selectedColumn, selectedRow, [previous_col_order_indirect, previous_col_order_direct], 
 											 [indirect_rows, direct_rows], sortingRow);
+
+						// Update columns order for the full tables
+						var indirect_col_order = d3.select('#indirectTableSort').select('thead').selectAll('th').nodes().map(
+											x => x.id.split('indirectColID_')[1].replaceAll('-',"'").replaceAll('_',' '));
+						var indirect_column_full_headers = d3.select('#indirectTableFull').select('thead').select('tr').selectAll('th');
+						var indirect_rows_full_content = d3.select('#indirectTableFull').select('tbody').selectAll('tr').selectAll('td');
+						indirect_column_full_headers.sort(function(a,b){
+							var aScore = indirect_col_order.indexOf(a[selectedColumn]);
+							var bScore = indirect_col_order.indexOf(b[selectedColumn]);
+							return aScore - bScore;
+						});
+						indirect_rows_full_content.sort(function(a,b){
+							var aScore = indirect_col_order.indexOf(a[selectedColumn]);
+							var bScore = indirect_col_order.indexOf(b[selectedColumn]);
+							return aScore - bScore;
+						});
+
+						var direct_col_order = d3.select('#directTableSort').select('thead').selectAll('th').nodes().map(
+											x => x.id.split('directColID_')[1].replaceAll('-',"'").replaceAll('_',' '));
+						var direct_column_full_headers = d3.select('#directTableFull').select('thead').select('tr').selectAll('th');
+						var direct_rows_full_content = d3.select('#directTableFull').select('tbody').selectAll('tr').selectAll('td');
+						direct_column_full_headers.sort(function(a,b){
+							var aScore = direct_col_order.indexOf(a[selectedColumn]);
+							var bScore = direct_col_order.indexOf(b[selectedColumn]);
+							return aScore - bScore;
+						});
+						direct_rows_full_content.sort(function(a,b){
+							var aScore = direct_col_order.indexOf(a[selectedColumn]);
+							var bScore = direct_col_order.indexOf(b[selectedColumn]);
+							return aScore - bScore;
+						});
 
 						// Display correct sorting legend
 						if (sortingOnSimilarity){
@@ -710,6 +760,37 @@
 						createBiasTablesSort(selectedColumn, selectedRow, [previous_col_order_indirect, previous_col_order_direct], 
 											 [indirect_rows, direct_rows], sortingRow);
 
+						// Update columns order for the full tables
+						var indirect_col_order = d3.select('#indirectTableSort').select('thead').selectAll('th').nodes().map(
+											x => x.id.split('indirectColID_')[1].replaceAll('-',"'").replaceAll('_',' '));
+						var indirect_column_full_headers = d3.select('#indirectTableFull').select('thead').select('tr').selectAll('th');
+						var indirect_rows_full_content = d3.select('#indirectTableFull').select('tbody').selectAll('tr').selectAll('td');
+						indirect_column_full_headers.sort(function(a,b){
+							var aScore = indirect_col_order.indexOf(a[selectedColumn]);
+							var bScore = indirect_col_order.indexOf(b[selectedColumn]);
+							return aScore - bScore;
+						});
+						indirect_rows_full_content.sort(function(a,b){
+							var aScore = indirect_col_order.indexOf(a[selectedColumn]);
+							var bScore = indirect_col_order.indexOf(b[selectedColumn]);
+							return aScore - bScore;
+						});
+
+						var direct_col_order = d3.select('#directTableSort').select('thead').selectAll('th').nodes().map(
+											x => x.id.split('directColID_')[1].replaceAll('-',"'").replaceAll('_',' '));
+						var direct_column_full_headers = d3.select('#directTableFull').select('thead').select('tr').selectAll('th');
+						var direct_rows_full_content = d3.select('#directTableFull').select('tbody').selectAll('tr').selectAll('td');
+						direct_column_full_headers.sort(function(a,b){
+							var aScore = direct_col_order.indexOf(a[selectedColumn]);
+							var bScore = direct_col_order.indexOf(b[selectedColumn]);
+							return aScore - bScore;
+						});
+						direct_rows_full_content.sort(function(a,b){
+							var aScore = direct_col_order.indexOf(a[selectedColumn]);
+							var bScore = direct_col_order.indexOf(b[selectedColumn]);
+							return aScore - bScore;
+						});
+						
 						// Display correct sorting legend
 						if (sortingOnSimilarity){
 							var sortingText = '<b>' + selectedColumn + '</b> sorted based on: <b>' + sortingRow + '</b>';
@@ -1694,7 +1775,7 @@
 				} else {
 					colorScaleMinDirect = -Math.abs(colorScaleMaxDirect);
 				}
-				
+
 				setUpVisualization(); // Initialize visualization
 			}, delay);
 		</script>
